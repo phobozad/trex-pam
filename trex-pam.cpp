@@ -115,6 +115,70 @@ string getQR() {
   return qr.toSvgString(1);
 }
 
+string getQRCli() {
+  const int widthScaler = 1;
+  string ansiEncodedQR{};
+
+  const qrcodegen::QrCode qr = qrcodegen::QrCode::encodeText(
+      globalChallenge.c_str(),
+      qrcodegen::QrCode::Ecc::LOW);
+
+  // Print top border.  Width is 2 units wider than the QR Code
+  for (int x=0; x < qr.getSize()*widthScaler + widthScaler*2; x++){
+    ansiEncodedQR += "▄";
+  }
+  ansiEncodedQR += "\n";
+
+  string blockVal{};
+
+  // Increment every two rows for higher vertical resolution with half-block glyphs
+  for (int y=0; y < qr.getSize(); y+=2){
+    // Left border for this row
+    for (int i=0; i < widthScaler; i++){
+      ansiEncodedQR += "█";
+    }
+
+    // QR Code Row
+    for (int x=0; x < qr.getSize(); x++){
+      if(qr.getModule(x,y) && qr.getModule(x,y+1)){
+        // Row y and y+1 = Black ( )
+        blockVal = " ";
+      }
+      else if (qr.getModule(x,y) && !qr.getModule(x,y+1)){
+        // Row y = Black and y+1 = White (▄)
+        blockVal = "▄";
+      }
+      else if (!qr.getModule(x,y) && qr.getModule(x,y+1)){
+        // Row y = White and y+1 = Black (▀)
+        blockVal = "▀";
+      }
+      else if (!qr.getModule(x,y) && !qr.getModule(x,y+1)){
+        // Row y and y+1 = White (█)
+        blockVal = "█";
+      }
+
+      // Append the chosen block glyph to the output
+      for (int i=0; i < widthScaler; i++){
+        ansiEncodedQR += blockVal;
+      }
+    }
+
+    // Right border for this row
+    for (int i=0; i < widthScaler; i++){
+      ansiEncodedQR += "█";
+    }
+    ansiEncodedQR += "\n";
+  }
+
+  // Print bottom border.  Width is 2 units wider than the QR Code
+  for (int x=0; x < qr.getSize()*widthScaler + widthScaler*2; x++){
+    ansiEncodedQR += "▀";
+  }
+  ansiEncodedQR += "\n";
+
+  return ansiEncodedQR;
+}
+
 // globals, carefull.
 string globalUser, globalPass;
 bool globalAuth;
@@ -309,6 +373,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc,
     auto [challenge,
           pass]{ver.getChallenge(homeDir + "/"s + gnupgHome, reciever)};
     auto clearMsg{"\nTimeout set for 10 minutes\nResponse:"s};
+    auto preMsg{""s};
 
     // hold a non running webserver.
     //  must be declared in this scope.
@@ -323,9 +388,13 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc,
     if (webQrFlag)
       clearMsg = qrServer.start() + clearMsg;
 
+    // If CLI text-based QR is enabled, generate it
+    if(webQr == "cliQR")
+      preMsg += getQRCli() + "\n";
+
     // get a response from the user
     auto timeOut{chrono::system_clock::now() + 10min};
-    auto response{converse(pamh, challenge + clearMsg)};
+    auto response{converse(pamh, preMsg + challenge + clearMsg)};
 
     // verify that the user supplied the correct response in time
     if (response == pass && timeOut > chrono::system_clock::now()) {
